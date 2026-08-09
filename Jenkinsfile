@@ -1,4 +1,4 @@
-```groovy
+
 pipeline {
 
     agent {
@@ -245,4 +245,4 @@ pipeline {
         }
     }
 }
-```
+
