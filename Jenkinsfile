@@ -1,4 +1,4 @@
-
+```groovy
 pipeline {
 
     agent {
@@ -10,7 +10,7 @@ pipeline {
         APP_NAME = "php-basic-website"
         VERSION = "${BUILD_NUMBER}"
 
-        NEXUS_URL = "http://http://32.197.205.187:8082/"
+        NEXUS_URL = "http://32.197.205.187:8082"
         REPOSITORY = "php-artifacts"
 
         SONARQUBE = "SonarQube"
@@ -75,6 +75,7 @@ pipeline {
             }
         }
 
+
         stage('SonarQube Analysis') {
             steps {
 
@@ -87,14 +88,11 @@ pipeline {
                         -Dsonar.projectKey=php-basic \
                         -Dsonar.projectName=php-basic \
                         -Dsonar.sources=. \
-                        -Dsonar.exclusions=vendor/**,tests/**
+                        -Dsonar.exclusions=vendor/**,tests/**,.scannerwork/**
                     '''
                 }
             }
         }
-
-
-        
 
 
         stage('Package') {
@@ -105,6 +103,7 @@ pipeline {
 
                     zip -r "${APP_NAME}-${VERSION}.zip" . \
                         -x ".git/*" \
+                        -x ".scannerwork/*" \
                         -x "Jenkinsfile" \
                         -x "*.zip"
                 '''
@@ -246,3 +245,4 @@ pipeline {
         }
     }
 }
+```
