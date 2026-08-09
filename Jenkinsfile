@@ -20,7 +20,6 @@ pipeline {
     stages {
 
         stage('Checkout') {
-
             steps {
 
                 git(
@@ -32,14 +31,44 @@ pipeline {
         }
 
 
-        stage('PHP Syntax Check') {
+        stage('Check Environment') {
+            steps {
 
+                sh '''
+                    echo "======================================"
+                    echo "Checking Agent Environment"
+                    echo "======================================"
+
+                    echo "Git:"
+                    git --version
+
+                    echo "PHP:"
+                    php --version
+
+                    echo "Composer:"
+                    composer --version
+
+                    echo "Curl:"
+                    curl --version | head -1
+
+                    echo "Zip:"
+                    zip -v | head -2
+
+                    echo "======================================"
+                '''
+            }
+        }
+
+
+        stage('PHP Syntax Check') {
             steps {
 
                 sh '''
                     echo "Checking PHP syntax..."
 
-                    find . -type f -name "*.php" \
+                    find . \
+                    -type f \
+                    -name "*.php" \
                     -not -path "./vendor/*" \
                     -print0 | xargs -0 -n1 php -l
                 '''
@@ -48,10 +77,11 @@ pipeline {
 
 
         stage('Install Dependencies') {
-
             steps {
 
                 sh '''
+                    echo "Installing Composer dependencies..."
+
                     composer install \
                         --no-interaction \
                         --prefer-dist
@@ -61,10 +91,11 @@ pipeline {
 
 
         stage('PHPUnit Test') {
-
             steps {
 
                 sh '''
+                    echo "Running PHPUnit tests..."
+
                     vendor/bin/phpunit
                 '''
             }
@@ -72,10 +103,11 @@ pipeline {
 
 
         stage('Coding Standard') {
-
             steps {
 
                 sh '''
+                    echo "Running PHP CodeSniffer..."
+
                     vendor/bin/phpcs . \
                         --ignore=vendor/*
                 '''
@@ -84,17 +116,18 @@ pipeline {
 
 
         stage('SonarQube Analysis') {
-
             steps {
 
                 withSonarQubeEnv('SonarQube') {
 
                     sh '''
+                        echo "Running SonarQube analysis..."
+
                         ${SONAR_SCANNER}/bin/sonar-scanner \
                         -Dsonar.projectKey=php-basic \
                         -Dsonar.projectName=php-basic \
                         -Dsonar.sources=. \
-                        -Dsonar.exclusions=vendor/**,tests/** \
+                        -Dsonar.exclusions=vendor/**,tests/**
                     '''
                 }
             }
@@ -102,7 +135,6 @@ pipeline {
 
 
         stage('Quality Gate') {
-
             steps {
 
                 timeout(
@@ -119,144 +151,128 @@ pipeline {
 
 
         stage('Package') {
-
             steps {
 
-                sh """
-
+                sh '''
                     echo "Creating application package..."
 
-                    zip -r ${APP_NAME}-${VERSION}.zip . \
+                    zip -r "${APP_NAME}-${VERSION}.zip" . \
                         -x ".git/*" \
                         -x "Jenkinsfile" \
                         -x "*.zip"
-
-                """
+                '''
             }
         }
 
 
         stage('Upload Artifact To Nexus') {
-
             steps {
 
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'nexus-user-pass',
-                        usernameVariable: 'USER',
-                        passwordVariable: 'PASS'
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASSWORD'
                     )
                 ]) {
 
-                    sh """
-
+                    sh '''
                         echo "Uploading artifact to Nexus..."
 
                         curl -f -v \
-                        -u "$USER:$PASS" \
+                        -u "${NEXUS_USER}:${NEXUS_PASSWORD}" \
                         --upload-file "${APP_NAME}-${VERSION}.zip" \
                         "${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip"
-
-                    """
+                    '''
                 }
             }
         }
 
 
         stage('Download Artifact From Nexus') {
-
             steps {
 
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'nexus-user-pass',
-                        usernameVariable: 'USER',
-                        passwordVariable: 'PASS'
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASSWORD'
                     )
                 ]) {
 
-                    sh """
-
+                    sh '''
                         echo "Downloading artifact from Nexus..."
 
                         curl -f \
-                        -u "$USER:$PASS" \
+                        -u "${NEXUS_USER}:${NEXUS_PASSWORD}" \
                         -o "${APP_NAME}-${VERSION}-from-nexus.zip" \
                         "${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip"
-
-                    """
-
+                    '''
                 }
             }
         }
 
 
         stage('Deploy To Staging') {
-
             steps {
 
                 sshagent(['staging-server-ssh']) {
 
-                    sh """
-
+                    sh '''
                         echo "Deploying to staging..."
 
                         scp \
                         "${APP_NAME}-${VERSION}-from-nexus.zip" \
                         ec2-user@STAGING-IP:/tmp/
 
-                        ssh ec2-user@STAGING-IP '
+                        ssh ec2-user@STAGING-IP "
                             sudo rm -rf /var/www/html/*
                             sudo unzip -o /tmp/${APP_NAME}-${VERSION}-from-nexus.zip -d /var/www/html
                             sudo chown -R apache:apache /var/www/html
                             sudo systemctl restart httpd
-                        '
-
-                    """
+                        "
+                    '''
                 }
             }
         }
 
 
         stage('Smoke Test') {
-
             steps {
 
                 sh '''
-
                     echo "Running staging smoke test..."
 
                     curl -f http://STAGING-IP
-
                 '''
             }
         }
 
 
         stage('Deploy To Production') {
-
             steps {
 
-                input message: 'Deploy to Production?', ok: 'Deploy'
+                input(
+                    message: 'Deploy to Production?',
+                    ok: 'Deploy'
+                )
 
                 sshagent(['production-server-ssh']) {
 
-                    sh """
-
+                    sh '''
                         echo "Deploying to production..."
 
                         scp \
                         "${APP_NAME}-${VERSION}-from-nexus.zip" \
                         ec2-user@PRODUCTION-IP:/tmp/
 
-                        ssh ec2-user@PRODUCTION-IP '
+                        ssh ec2-user@PRODUCTION-IP "
                             sudo rm -rf /var/www/html/*
                             sudo unzip -o /tmp/${APP_NAME}-${VERSION}-from-nexus.zip -d /var/www/html
                             sudo chown -R apache:apache /var/www/html
                             sudo systemctl restart httpd
-                        '
-
-                    """
+                        "
+                    '''
                 }
             }
         }
@@ -267,24 +283,20 @@ pipeline {
     post {
 
         success {
-
+            echo "======================================"
             echo "Deployment Successful"
-
+            echo "======================================"
         }
 
         failure {
-
+            echo "======================================"
             echo "Deployment Failed"
-
+            echo "======================================"
         }
 
         always {
-
-            echo "Pipeline completed."
-
+            echo "Pipeline execution completed."
         }
-
     }
-
 }
 ```
