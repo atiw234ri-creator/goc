@@ -10,7 +10,7 @@ pipeline {
         APP_NAME = "php-basic-website"
         VERSION = "${BUILD_NUMBER}"
 
-        NEXUS_URL = "http://54.10.10.10:8081"
+        NEXUS_URL = "http://http://32.197.205.187:8082/"
         REPOSITORY = "php-artifacts"
 
         SONARQUBE = "SonarQube"
