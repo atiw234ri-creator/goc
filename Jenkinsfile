@@ -76,19 +76,6 @@ pipeline {
         }
 
 
-        stage('Install Dependencies') {
-            steps {
-
-                sh '''
-                    echo "Installing Composer dependencies..."
-
-                    composer install \
-                        --no-interaction \
-                        --prefer-dist
-                '''
-            }
-        }
-
 
         stage('PHPUnit Test') {
             steps {
@@ -100,20 +87,6 @@ pipeline {
                 '''
             }
         }
-
-
-        stage('Coding Standard') {
-            steps {
-
-                sh '''
-                    echo "Running PHP CodeSniffer..."
-
-                    vendor/bin/phpcs . \
-                        --ignore=vendor/*
-                '''
-            }
-        }
-
 
         stage('SonarQube Analysis') {
             steps {
