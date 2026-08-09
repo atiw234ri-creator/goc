@@ -1,7 +1,7 @@
 ```groovy
 pipeline {
 
-      agent {
+    agent {
         label 'agentRunner'
     }
 
@@ -14,8 +14,6 @@ pipeline {
         REPOSITORY = "php-artifacts"
 
         SONARQUBE = "SonarQube"
-
-        // Jenkins will automatically install/use SonarScanner
         SONAR_SCANNER = tool 'SonarScanner'
     }
 
@@ -25,10 +23,11 @@ pipeline {
 
             steps {
 
-                git branch: 'main',
+                git(
+                    branch: 'main',
                     credentialsId: 'github-creds',
                     url: 'https://github.com/atiw234ri-creator/goc.git'
-
+                )
             }
         }
 
@@ -38,9 +37,12 @@ pipeline {
             steps {
 
                 sh '''
-                    find . -name "*.php" | xargs -n1 php -l
-                '''
+                    echo "Checking PHP syntax..."
 
+                    find . -type f -name "*.php" \
+                    -not -path "./vendor/*" \
+                    -print0 | xargs -0 -n1 php -l
+                '''
             }
         }
 
@@ -50,9 +52,10 @@ pipeline {
             steps {
 
                 sh '''
-                    composer install
+                    composer install \
+                        --no-interaction \
+                        --prefer-dist
                 '''
-
             }
         }
 
@@ -64,7 +67,6 @@ pipeline {
                 sh '''
                     vendor/bin/phpunit
                 '''
-
             }
         }
 
@@ -74,9 +76,9 @@ pipeline {
             steps {
 
                 sh '''
-                    vendor/bin/phpcs .
+                    vendor/bin/phpcs . \
+                        --ignore=vendor/*
                 '''
-
             }
         }
 
@@ -88,16 +90,13 @@ pipeline {
                 withSonarQubeEnv('SonarQube') {
 
                     sh '''
-
                         ${SONAR_SCANNER}/bin/sonar-scanner \
                         -Dsonar.projectKey=php-basic \
+                        -Dsonar.projectName=php-basic \
                         -Dsonar.sources=. \
-                        -Dsonar.php.coverage.reportPaths=coverage.xml
-
+                        -Dsonar.exclusions=vendor/**,tests/** \
                     '''
-
                 }
-
             }
         }
 
@@ -106,12 +105,15 @@ pipeline {
 
             steps {
 
-                timeout(time: 5, unit: 'MINUTES') {
+                timeout(
+                    time: 5,
+                    unit: 'MINUTES'
+                ) {
 
-                    waitForQualityGate abortPipeline: true
-
+                    waitForQualityGate(
+                        abortPipeline: true
+                    )
                 }
-
             }
         }
 
@@ -122,10 +124,14 @@ pipeline {
 
                 sh """
 
-                    zip -r ${APP_NAME}-${VERSION}.zip .
+                    echo "Creating application package..."
+
+                    zip -r ${APP_NAME}-${VERSION}.zip . \
+                        -x ".git/*" \
+                        -x "Jenkinsfile" \
+                        -x "*.zip"
 
                 """
-
             }
         }
 
@@ -144,14 +150,15 @@ pipeline {
 
                     sh """
 
-                        curl -v -u $USER:$PASS \
-                        --upload-file ${APP_NAME}-${VERSION}.zip \
-                        ${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip
+                        echo "Uploading artifact to Nexus..."
+
+                        curl -f -v \
+                        -u "$USER:$PASS" \
+                        --upload-file "${APP_NAME}-${VERSION}.zip" \
+                        "${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip"
 
                     """
-
                 }
-
             }
         }
 
@@ -170,14 +177,16 @@ pipeline {
 
                     sh """
 
-                        curl -u $USER:$PASS \
-                        -O \
-                        ${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip
+                        echo "Downloading artifact from Nexus..."
+
+                        curl -f \
+                        -u "$USER:$PASS" \
+                        -o "${APP_NAME}-${VERSION}-from-nexus.zip" \
+                        "${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip"
 
                     """
 
                 }
-
             }
         }
 
@@ -190,19 +199,21 @@ pipeline {
 
                     sh """
 
-                        scp ${APP_NAME}-${VERSION}.zip ec2-user@STAGING-IP:/tmp
+                        echo "Deploying to staging..."
+
+                        scp \
+                        "${APP_NAME}-${VERSION}-from-nexus.zip" \
+                        ec2-user@STAGING-IP:/tmp/
 
                         ssh ec2-user@STAGING-IP '
                             sudo rm -rf /var/www/html/*
-                            sudo unzip -o /tmp/${APP_NAME}-${VERSION}.zip -d /var/www/html
+                            sudo unzip -o /tmp/${APP_NAME}-${VERSION}-from-nexus.zip -d /var/www/html
                             sudo chown -R apache:apache /var/www/html
                             sudo systemctl restart httpd
                         '
 
                     """
-
                 }
-
             }
         }
 
@@ -213,10 +224,11 @@ pipeline {
 
                 sh '''
 
-                    curl http://STAGING-IP
+                    echo "Running staging smoke test..."
+
+                    curl -f http://STAGING-IP
 
                 '''
-
             }
         }
 
@@ -225,25 +237,27 @@ pipeline {
 
             steps {
 
-                input "Deploy to Production?"
+                input message: 'Deploy to Production?', ok: 'Deploy'
 
                 sshagent(['production-server-ssh']) {
 
                     sh """
 
-                        scp ${APP_NAME}-${VERSION}.zip ec2-user@PRODUCTION-IP:/tmp
+                        echo "Deploying to production..."
+
+                        scp \
+                        "${APP_NAME}-${VERSION}-from-nexus.zip" \
+                        ec2-user@PRODUCTION-IP:/tmp/
 
                         ssh ec2-user@PRODUCTION-IP '
                             sudo rm -rf /var/www/html/*
-                            sudo unzip -o /tmp/${APP_NAME}-${VERSION}.zip -d /var/www/html
+                            sudo unzip -o /tmp/${APP_NAME}-${VERSION}-from-nexus.zip -d /var/www/html
                             sudo chown -R apache:apache /var/www/html
                             sudo systemctl restart httpd
                         '
 
                     """
-
                 }
-
             }
         }
 
@@ -261,6 +275,12 @@ pipeline {
         failure {
 
             echo "Deployment Failed"
+
+        }
+
+        always {
+
+            echo "Pipeline completed."
 
         }
 
