@@ -1,19 +1,22 @@
+```groovy
 pipeline {
 
-    agent any
+      agent {
+        label 'agentRunner'
+    }
 
     environment {
 
         APP_NAME = "php-basic-website"
-
         VERSION = "${BUILD_NUMBER}"
 
         NEXUS_URL = "http://54.10.10.10:8081"
-
         REPOSITORY = "php-artifacts"
 
         SONARQUBE = "SonarQube"
 
+        // Jenkins will automatically install/use SonarScanner
+        SONAR_SCANNER = tool 'SonarScanner'
     }
 
     stages {
@@ -23,59 +26,60 @@ pipeline {
             steps {
 
                 git branch: 'main',
-                credentialsId: 'github-creds',
-                url: 'https://github.com/username/php-basic-website.git'
+                    credentialsId: 'github-creds',
+                    url: 'https://github.com/atiw234ri-creator/goc.git'
 
             }
         }
+
 
         stage('PHP Syntax Check') {
 
             steps {
 
                 sh '''
-                find . -name "*.php" | xargs -n1 php -l
+                    find . -name "*.php" | xargs -n1 php -l
                 '''
 
             }
-
         }
+
 
         stage('Install Dependencies') {
 
             steps {
 
                 sh '''
-                composer install
+                    composer install
                 '''
 
             }
-
         }
+
 
         stage('PHPUnit Test') {
 
             steps {
 
                 sh '''
-                vendor/bin/phpunit
+                    vendor/bin/phpunit
                 '''
 
             }
-
         }
+
 
         stage('Coding Standard') {
 
             steps {
 
                 sh '''
-                vendor/bin/phpcs .
+                    vendor/bin/phpcs .
                 '''
 
             }
-
         }
+
 
         stage('SonarQube Analysis') {
 
@@ -85,18 +89,18 @@ pipeline {
 
                     sh '''
 
-                    sonar-scanner \
-                    -Dsonar.projectKey=php-basic \
-                    -Dsonar.sources=. \
-                    -Dsonar.php.coverage.reportPaths=coverage.xml
+                        ${SONAR_SCANNER}/bin/sonar-scanner \
+                        -Dsonar.projectKey=php-basic \
+                        -Dsonar.sources=. \
+                        -Dsonar.php.coverage.reportPaths=coverage.xml
 
                     '''
 
                 }
 
             }
-
         }
+
 
         stage('Quality Gate') {
 
@@ -109,8 +113,8 @@ pipeline {
                 }
 
             }
-
         }
+
 
         stage('Package') {
 
@@ -118,69 +122,65 @@ pipeline {
 
                 sh """
 
-                zip -r ${APP_NAME}-${VERSION}.zip .
+                    zip -r ${APP_NAME}-${VERSION}.zip .
 
                 """
 
             }
-
         }
+
 
         stage('Upload Artifact To Nexus') {
 
             steps {
 
-                withCredentials([usernamePassword(
-
-                    credentialsId: 'nexus-user-pass',
-
-                    usernameVariable: 'USER',
-
-                    passwordVariable: 'PASS'
-
-                )]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-user-pass',
+                        usernameVariable: 'USER',
+                        passwordVariable: 'PASS'
+                    )
+                ]) {
 
                     sh """
 
-                    curl -v -u $USER:$PASS \
-                    --upload-file ${APP_NAME}-${VERSION}.zip \
-                    ${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip
+                        curl -v -u $USER:$PASS \
+                        --upload-file ${APP_NAME}-${VERSION}.zip \
+                        ${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip
 
                     """
 
                 }
 
             }
-
         }
+
 
         stage('Download Artifact From Nexus') {
 
             steps {
 
-                withCredentials([usernamePassword(
-
-                    credentialsId: 'nexus-user-pass',
-
-                    usernameVariable: 'USER',
-
-                    passwordVariable: 'PASS'
-
-                )]) {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-user-pass',
+                        usernameVariable: 'USER',
+                        passwordVariable: 'PASS'
+                    )
+                ]) {
 
                     sh """
 
-                    curl -u $USER:$PASS \
-                    -O \
-                    ${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip
+                        curl -u $USER:$PASS \
+                        -O \
+                        ${NEXUS_URL}/repository/${REPOSITORY}/${APP_NAME}/${VERSION}/${APP_NAME}-${VERSION}.zip
 
                     """
 
                 }
 
             }
-
         }
+
 
         stage('Deploy To Staging') {
 
@@ -190,27 +190,22 @@ pipeline {
 
                     sh """
 
-                    scp ${APP_NAME}-${VERSION}.zip ec2-user@STAGING-IP:/tmp
+                        scp ${APP_NAME}-${VERSION}.zip ec2-user@STAGING-IP:/tmp
 
-                    ssh ec2-user@STAGING-IP '
-
-                    sudo rm -rf /var/www/html/*
-
-                    sudo unzip -o /tmp/${APP_NAME}-${VERSION}.zip -d /var/www/html
-
-                    sudo chown -R apache:apache /var/www/html
-
-                    sudo systemctl restart httpd
-
-                    '
+                        ssh ec2-user@STAGING-IP '
+                            sudo rm -rf /var/www/html/*
+                            sudo unzip -o /tmp/${APP_NAME}-${VERSION}.zip -d /var/www/html
+                            sudo chown -R apache:apache /var/www/html
+                            sudo systemctl restart httpd
+                        '
 
                     """
 
                 }
 
             }
-
         }
+
 
         stage('Smoke Test') {
 
@@ -218,13 +213,13 @@ pipeline {
 
                 sh '''
 
-                curl http://STAGING-IP
+                    curl http://STAGING-IP
 
                 '''
 
             }
-
         }
+
 
         stage('Deploy To Production') {
 
@@ -236,29 +231,24 @@ pipeline {
 
                     sh """
 
-                    scp ${APP_NAME}-${VERSION}.zip ec2-user@PRODUCTION-IP:/tmp
+                        scp ${APP_NAME}-${VERSION}.zip ec2-user@PRODUCTION-IP:/tmp
 
-                    ssh ec2-user@PRODUCTION-IP '
-
-                    sudo rm -rf /var/www/html/*
-
-                    sudo unzip -o /tmp/${APP_NAME}-${VERSION}.zip -d /var/www/html
-
-                    sudo chown -R apache:apache /var/www/html
-
-                    sudo systemctl restart httpd
-
-                    '
+                        ssh ec2-user@PRODUCTION-IP '
+                            sudo rm -rf /var/www/html/*
+                            sudo unzip -o /tmp/${APP_NAME}-${VERSION}.zip -d /var/www/html
+                            sudo chown -R apache:apache /var/www/html
+                            sudo systemctl restart httpd
+                        '
 
                     """
 
                 }
 
             }
-
         }
 
     }
+
 
     post {
 
@@ -277,3 +267,4 @@ pipeline {
     }
 
 }
+```
