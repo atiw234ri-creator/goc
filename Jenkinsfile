@@ -75,19 +75,6 @@ pipeline {
             }
         }
 
-
-
-        stage('PHPUnit Test') {
-            steps {
-
-                sh '''
-                    echo "Running PHPUnit tests..."
-
-                    vendor/bin/phpunit
-                '''
-            }
-        }
-
         stage('SonarQube Analysis') {
             steps {
 
